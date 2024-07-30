@@ -4,13 +4,21 @@
 
 /* Implementation of class "MessageQueue" */
 
-/* 
+
 template <typename T>
 T MessageQueue<T>::receive()
 {
     // FP.5a : The method receive should use std::unique_lock<std::mutex> and _condition.wait() 
     // to wait for and receive new messages and pull them from the queue using move semantics. 
     // The received object should then be returned by the receive function. 
+    std::unique_lock<std::mutex> mlock(_mutex);   
+
+    _cond.wait(mlock, [this]{return !_deque.empty();});
+
+    TrafficLightPhase receive_msg = std::move(_deque.front());
+    _deque.pop_front();
+
+    return receive_msg;
 }
 
 template <typename T>
@@ -18,15 +26,33 @@ void MessageQueue<T>::send(T &&msg)
 {
     // FP.4a : The method send should use the mechanisms std::lock_guard<std::mutex> 
     // as well as _condition.notify_one() to add a new message to the queue and afterwards send a notification.
+    std::lock_guard<std::mutex> mlock(_mutex);
+    _deque.push_back(std::move(msg));
+    _cond.notify_one();
 }
-*/
+
 
 /* Implementation of class "TrafficLight" */
 
-/* 
+int getRandomTime()
+{
+    const int min {4};
+    const int max {6};
+
+    std::random_device rd; // Obtain a random seed from hardware
+    std::mt19937 generator(rd()); // Seed the generator
+    std::uniform_int_distribution<int> distribution(min, max); // Create a uniform distribution
+
+    return distribution(generator); // Generate and return a random number in the range [min, max]
+}
+
 TrafficLight::TrafficLight()
 {
     _currentPhase = TrafficLightPhase::red;
+}
+
+TrafficLight::~TrafficLight()
+{
 }
 
 void TrafficLight::waitForGreen()
@@ -34,6 +60,15 @@ void TrafficLight::waitForGreen()
     // FP.5b : add the implementation of the method waitForGreen, in which an infinite while-loop 
     // runs and repeatedly calls the receive function on the message queue. 
     // Once it receives TrafficLightPhase::green, the method returns.
+    while(true)
+    {
+        TrafficLightPhase msg = _queue.receive();
+
+        if(msg == TrafficLightPhase::green)
+        {
+            return;
+        }
+    }
 }
 
 TrafficLightPhase TrafficLight::getCurrentPhase()
@@ -44,6 +79,7 @@ TrafficLightPhase TrafficLight::getCurrentPhase()
 void TrafficLight::simulate()
 {
     // FP.2b : Finally, the private method „cycleThroughPhases“ should be started in a thread when the public method „simulate“ is called. To do this, use the thread queue in the base class. 
+    threads.emplace_back(std::thread(&TrafficLight::cycleThroughPhases, this));
 }
 
 // virtual function which is executed in a thread
@@ -53,6 +89,37 @@ void TrafficLight::cycleThroughPhases()
     // and toggles the current phase of the traffic light between red and green and sends an update method 
     // to the message queue using move semantics. The cycle duration should be a random value between 4 and 6 seconds. 
     // Also, the while-loop should use std::this_thread::sleep_for to wait 1ms between two cycles. 
+
+    int cycleDuration = getRandomTime() * 1000; //converted to ms
+
+    auto startTime {std::chrono::steady_clock::now()};
+    auto endTime {startTime};
+    int elapsedTime {0};
+    while(true)
+    {
+        elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count(); // in ms
+
+        if(elapsedTime >= cycleDuration)
+        {
+            std::lock_guard<std::mutex> mlock(_mutex);
+            if(_currentPhase == TrafficLightPhase::red){  
+                _currentPhase = TrafficLightPhase::green;
+            }
+            else{
+                _currentPhase = TrafficLightPhase::red;
+            }
+
+            //Update the message
+            _queue.send(std::move(_currentPhase));
+
+            startTime = endTime;
+            cycleDuration = getRandomTime() * 1000; //converted to ms
+        }
+
+        // simulate work
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        endTime = std::chrono::steady_clock::now();
+    }
 }
 
-*/
